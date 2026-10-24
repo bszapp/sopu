@@ -2,6 +2,10 @@
 
 A new Flutter project.
 
+弹琴吧、虫虫钢琴乐谱搜索下载，支持免登录查看高清矢量vip乐谱
+
+API来自应用逆向
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.

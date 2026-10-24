@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.example.sopu"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
+    buildToolsVersion = "37.0.0"
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -31,9 +32,10 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
 }
