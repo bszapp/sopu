@@ -2,10 +2,15 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+
+import '../utils/data_fields.dart';
+import 'author_page.dart';
 
 import '../http/cc_api.dart';
 import '../http/tan8_api.dart';
 import '../widgets/common.dart';
+import '../widgets/piliplus/score_card_v.dart';
 
 class HomeTab extends StatefulWidget {
   const HomeTab({super.key});
@@ -30,10 +35,9 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
   }
 
   Future<List<dynamic>> _loadCc() async {
-    final r = await CcApi.opernList(page: 1, size: 20);
+    final r = await CcApi.floorTab();
     if (r is List) return r;
-    if (r is Map<String, dynamic>) return (r['list'] as List?) ?? const [];
-    return const [];
+    throw const FormatException('服务器未提供首页楼层列表');
   }
 
   @override
@@ -52,10 +56,7 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
           setState(() => _refresh());
         },
         child: ListView(
-          padding: EdgeInsets.only(
-            bottom:
-                MediaQuery.of(context).padding.bottom + pageBottomScrollSpace,
-          ),
+          padding: EdgeInsets.zero,
           children: [
             FutureBuilder<List<dynamic>>(
               future: _ccList,
@@ -69,28 +70,9 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
                     onRetry: () => setState(_refresh),
                   );
                 }
-                final items = (snap.data ?? const [])
-                    .whereType<Map<String, dynamic>>()
-                    .toList();
-                for (final e in items) {
-                  e['__platform'] = 'cc';
-                }
-                if (items.isEmpty) return const SizedBox.shrink();
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SectionHeader('虫虫钢琴 · 精选', platform: 'cc'),
-                    SizedBox(
-                      height: 224,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        scrollDirection: Axis.horizontal,
-                        itemCount: items.length,
-                        separatorBuilder: (_, _) => const SizedBox(width: 10),
-                        itemBuilder: (_, i) => ScoreCard(items[i]),
-                      ),
-                    ),
-                  ],
+                  children: _ccSections(snap.data ?? const []),
                 );
               },
             ),
@@ -117,43 +99,153 @@ class _HomeTabState extends State<HomeTab> with AutomaticKeepAliveClientMixin {
                 );
               },
             ),
-            const SizedBox(height: 30),
           ],
         ),
       ),
     );
   }
 
+  List<Widget> _ccSections(List<dynamic> modules) {
+    final widgets = <Widget>[];
+    var title = '';
+    for (final module in modules.whereType<Map>()) {
+      final type = '${module['container_type']}';
+      final rows = module['data'];
+      if (rows is! List || rows.isEmpty) continue;
+      if (type == 'title') {
+        title = textOf(rows.first as Map, ['title']);
+        continue;
+      }
+      final list = rows
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      if (type.contains('opern_list')) {
+        widgets.add(_section(title.isEmpty ? '推荐曲谱' : title, list, 'cc'));
+      } else if (type == 'hot_musician_list') {
+        widgets.add(
+          SectionHeader(title.isEmpty ? '推荐音乐人' : title, platform: 'cc'),
+        );
+        widgets.add(
+          SizedBox(
+            height: 142,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              scrollDirection: Axis.horizontal,
+              itemCount: list.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 10),
+              itemBuilder: (_, i) {
+                final u = list[i], uid = userIdOf(list[i], 'cc');
+                return SizedBox(
+                  width: 132,
+                  child: Card(
+                    child: InkWell(
+                      onTap: uid.isEmpty
+                          ? null
+                          : () => Get.to(
+                              () => AuthorPage(
+                                platform: 'cc',
+                                uid: uid,
+                                name: userNameOf(u),
+                                photo: '${u['home_photo'] ?? ''}',
+                              ),
+                            ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Column(
+                          children: [
+                            UserAvatar(
+                              url: '${u['home_photo'] ?? ''}',
+                              name: userNameOf(u),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              userNameOf(u),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              textOf(u, ['desc']),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      } else if (type == 'album_practice_list') {
+        for (final group in list) {
+          final albums = group['data'];
+          if (albums is List) {
+            widgets.add(
+              _section(
+                textOf(group, ['title']),
+                albums
+                    .whereType<Map>()
+                    .map((e) => <String, dynamic>{...e, 'id': e['cid']})
+                    .toList(),
+                'cc',
+              ),
+            );
+          }
+        }
+      } else if (type == 'home_index_hot_accompany') {
+        final scores = <Map<String, dynamic>>[];
+        for (final row in list) {
+          final data = row['datas'];
+          if (data is Map && '${data['opern_id'] ?? ''}'.isNotEmpty) {
+            scores.add({
+              ...Map<String, dynamic>.from(data),
+              'old_id': data['opern_id'],
+              'image_address': data['bg_img'],
+            });
+          }
+        }
+        if (scores.isNotEmpty) widgets.add(_section('热门伴奏', scores, 'cc'));
+      }
+    }
+    return widgets;
+  }
+
+  Widget _section(
+    String title,
+    List<Map<String, dynamic>> items,
+    String platform,
+  ) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      SectionHeader(title, platform: platform),
+      SizedBox(
+        height: 200,
+        child: ListView.separated(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          scrollDirection: Axis.horizontal,
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 10),
+          itemBuilder: (_, i) =>
+              ScoreCardV({...items[i], '__platform': platform}),
+        ),
+      ),
+    ],
+  );
+
   Widget _tan8Section(Map<String, dynamic> mod) {
     final result = mod['result'];
     if (result is! Map) return const SizedBox.shrink();
-    dynamic items = result['result'];
+    final items = result['result'];
     if (items is! List || items.isEmpty) return const SizedBox.shrink();
-    final list =
-        items
-            .whereType<Map<String, dynamic>>()
-            .where((e) => (e['id'] ?? '').toString().isNotEmpty)
-            .toList()
-          ..forEach((e) => e['__platform'] = 'tan8');
+    final list = items
+        .whereType<Map<String, dynamic>>()
+        .where((e) => ScoreCard.idOf(e).isNotEmpty || e['jumpEvent'] is Map)
+        .toList();
     if (list.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(
-          (mod['web_mod_id'] ?? '弹琴吧').toString(),
-          platform: 'tan8',
-        ),
-        SizedBox(
-          height: 224,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            scrollDirection: Axis.horizontal,
-            itemCount: list.length.clamp(0, 20),
-            separatorBuilder: (_, _) => const SizedBox(width: 10),
-            itemBuilder: (_, i) => ScoreCard(list[i]),
-          ),
-        ),
-      ],
-    );
+    final title = textOf(mod, ['title']);
+    return _section(title.isEmpty ? '推荐' : title, list, 'tan8');
   }
 }

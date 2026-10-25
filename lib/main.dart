@@ -18,6 +18,7 @@ import 'package:window_manager/window_manager.dart';
 import 'common/constants.dart';
 import 'http/http.dart';
 import 'pages/home_page.dart';
+import 'pages/collection_page.dart';
 import 'pages/mine_list_page.dart';
 import 'pages/score_detail_page.dart';
 import 'pages/sheet_web_page.dart' show initWebViewEnv;
@@ -26,6 +27,7 @@ import 'services/sessions.dart';
 import 'utils/globals.dart';
 import 'utils/platform_utils.dart';
 import 'widgets/player_bar.dart';
+import 'widgets/app_shell.dart';
 
 const _fallbackSeed = Color(0xFF5E4B8B);
 
@@ -115,7 +117,9 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     // material_ui 的 ColorScheme 与 flutter/material 的不互通(dynamic_color 2.1.0
     // 返回的是 material_ui 方案), 改为保证可用: 系统动态取色以 seed 兜底。
-    final l = ColorScheme.fromSeed(seedColor: _fallbackSeed);
+    final l = ColorScheme.fromSeed(
+      seedColor: const Color.fromARGB(255, 23, 233, 191),
+    );
     final d = ColorScheme.fromSeed(
       seedColor: _fallbackSeed,
       brightness: Brightness.dark,
@@ -135,7 +139,12 @@ class MyApp extends StatelessWidget {
       ],
       initialRoute: '/',
       routingCallback: (routing) {
-        final onHome = (routing?.current ?? '/') == '/';
+        if (routing == null ||
+            routing.isDialog == true ||
+            routing.isBottomSheet == true) {
+          return;
+        }
+        final onHome = Uri.tryParse(routing.current)?.path == '/';
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (playerOnHome.value != onHome) playerOnHome.value = onHome;
         });
@@ -150,22 +159,25 @@ class MyApp extends StatelessWidget {
           ),
         ),
         GetPage(
+          name: '/collection',
+          page: () => CollectionPage(
+            platform: Get.parameters['platform'] ?? 'tan8',
+            url: Get.parameters['url'] ?? '',
+            title: Get.parameters['title'] ?? '合集',
+            id: Get.parameters['id'] ?? '',
+          ),
+        ),
+        GetPage(
           name: '/mine_list',
           page: () =>
               MineListPage(kind: Get.parameters['kind'] ?? 'cc_collect'),
         ),
       ],
       builder: FlutterSmartDialog.init(
-        builder: (context, child) => ValueListenableBuilder<bool>(
-          valueListenable: playerOnHome,
-          builder: (context, onHome, _) => Column(
-            children: [
-              Expanded(child: child ?? const SizedBox.shrink()),
-              if (!onHome) const MiniPlayerBar(),
-            ],
-          ),
-        ),
+        builder: (context, child) =>
+            AppShell(child: child ?? const SizedBox.shrink()),
       ),
+
       navigatorObservers: [FlutterSmartDialog.observer],
       scrollBehavior: _DesktopScrollBehavior(),
     );

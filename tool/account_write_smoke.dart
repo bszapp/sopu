@@ -162,6 +162,17 @@ Future<void> tan8Writes() async {
       await File('${directory.path}/tan8_cleanup.json').writeAsString(jsonEncode({'score':score,'comment':ownComment,'message':message}));
       return r;
     });
+    if (ownComment.isEmpty && web) {
+      await check('tan8.webComment.fixture', () async {
+        final response = await Tan8Api.addComment(score, message);
+        receipt(response);
+        final found = list(await Tan8Api.comments(score, limit: 100)).where((e) => body(e) == message);
+        require(found.isNotEmpty, '无法创建网页点赞/删除测试用的本人评论');
+        ownComment = cid(found.first);
+        await File('${directory.path}/tan8_cleanup.json').writeAsString(jsonEncode({'score': score, 'comment': ownComment, 'message': message}));
+        return response;
+      });
+    }
     if (ownComment.isEmpty) continue;
     try {
       for (final on in [true,false]) {
@@ -178,6 +189,14 @@ Future<void> tan8Writes() async {
         final r = web ? await Tan8Api.webDelComment(ownComment,score) : await Tan8Api.delComment(ownComment,score); receipt(r);
         require(!list(await Tan8Api.comments(score,limit:100)).any((e) => cid(e) == ownComment),'删除后评论仍存在'); return r;
       });
+      if (web && list(await Tan8Api.comments(score, limit: 100)).any((e) => cid(e) == ownComment && body(e) == message)) {
+        await check('tan8.webComment.cleanup', () async {
+          final response = await Tan8Api.delComment(ownComment, score);
+          receipt(response);
+          require(!list(await Tan8Api.comments(score, limit: 100)).any((e) => cid(e) == ownComment), '未能清理本次测试评论');
+          return response;
+        });
+      }
     }
   }
 }

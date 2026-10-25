@@ -41,7 +41,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _sendCode() async {
     if (_sending || _countdown > 0 || _loggingIn) return;
-    final phone = _phone.text.trim();
+    final phone = _phone.text.replaceAll(RegExp(r'\s+'), '');
     if (phone.isEmpty || phone.length < 5) {
       SmartDialog.showToast('请输入手机号');
       return;
@@ -66,7 +66,7 @@ class _LoginPageState extends State<LoginPage> {
       SmartDialog.showToast(message);
       setState(() {
         _info = message;
-        _countdown = 60;
+        _countdown = isCc ? CcApi.smsCooldownRemaining(phone) : 60;
       });
       _timer?.cancel();
       _timer = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -74,7 +74,11 @@ class _LoginPageState extends State<LoginPage> {
           t.cancel();
           return;
         }
-        setState(() => _countdown--);
+        setState(
+          () => _countdown = isCc
+              ? CcApi.smsCooldownRemaining(phone)
+              : _countdown - 1,
+        );
         if (_countdown <= 0) t.cancel();
       });
     } catch (e) {
@@ -87,7 +91,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _login() async {
     if (_loggingIn || _sending) return;
-    final phone = _phone.text.trim();
+    final phone = _phone.text.replaceAll(RegExp(r'\s+'), '');
     final code = _code.text.trim();
     if (phone.isEmpty || code.isEmpty) {
       SmartDialog.showToast('请输入手机号与验证码');
@@ -108,6 +112,7 @@ class _LoginPageState extends State<LoginPage> {
           'service_key': CcApi.serviceKey,
           'id': CcApi.userToken,
           'cg_uid': CcApi.cgUid,
+          'PHPSESSID': CcApi.phpSessionId,
         };
         await Sessions.saveCc();
         name = '${Sessions.ccUser['nickname'] ?? ''}';
@@ -127,7 +132,11 @@ class _LoginPageState extends State<LoginPage> {
       }
       SmartDialog.dismiss(status: SmartStatus.loading);
       if (!mounted) return;
-      SmartDialog.showToast('登录成功${name.isEmpty ? '' : ': $name'}');
+      SmartDialog.showToast(
+        isCc && CcApi.uid.isEmpty
+            ? '登录会话已保存，账号资料尚未获取'
+            : '登录成功${name.isEmpty ? '' : ': $name'}',
+      );
       Get.back(result: true);
     } catch (e) {
       SmartDialog.dismiss(status: SmartStatus.loading);
@@ -151,7 +160,7 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, pageBottomScrollSpace),
+        padding: const EdgeInsets.all(20),
         children: [
           TextField(
             controller: _phone,

@@ -57,6 +57,8 @@ dependencies:
   media_kit_libs_audio: ^1.0.7
   audio_service: ^0.18.19
   audio_session: ^0.2.4
+  extended_nested_scroll_view:
+    path: packages/extended_nested_scroll_view
 
 dev_dependencies:
   integration_test:

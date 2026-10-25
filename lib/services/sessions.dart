@@ -5,6 +5,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import '../http/cc_api.dart';
@@ -18,13 +19,28 @@ abstract final class Sessions {
   static Map<String, dynamic> ccUser = {};
 
   static bool get tan8LoggedIn => tan8User.isNotEmpty;
-  static bool get ccLoggedIn => ccUser.isNotEmpty;
+  static bool get ccLoggedIn => CcApi.hasSession;
+  static String get ccIdentityKey =>
+      '${CcApi.sessionVersion}:${CcApi.uid}:${CcApi.cgUid}';
 
   static String get tan8Uid => '${tan8User['uid'] ?? ''}';
-  static String get ccNumericId =>
-      ccUser['cg_uid']?.toString().isNotEmpty == true
-          ? ccUser['cg_uid']!.toString()
-          : CcApi.cgUid;
+  static String get ccNumericId => CcApi.numericUserId;
+
+  static bool ownsComment(Map comment, {required bool isCc}) {
+    final identities = isCc
+        ? {
+            ccNumericId,
+            CcApi.cgUid,
+            CcApi.serviceUid,
+            CcApi.uid,
+            CcApi.userToken,
+          }
+        : {tan8Uid};
+    identities.remove('');
+    return ['u_uid', 'uid', 'user_id', 'userid', 'cg_uid'].any(
+      (key) => comment[key] != null && identities.contains('${comment[key]}'),
+    );
+  }
 
   static Future<void> init() async {
     tan8User = _readJson('tan8_user.json');
@@ -38,7 +54,8 @@ abstract final class Sessions {
       clientFile.writeAsStringSync(CcApi.eqid);
     }
     CcApi.onSessionDirty = () async {
-      if (CcApi.uid.isEmpty) return;
+      if (!CcApi.hasSession) return;
+      if (ccUser['PHPSESSID'] != CcApi.phpSessionId) ccUser = {};
       ccUser = {
         ...ccUser,
         'uid': CcApi.uid,
@@ -46,13 +63,16 @@ abstract final class Sessions {
         'service_key': CcApi.serviceKey,
         'id': CcApi.userToken,
         'cg_uid': CcApi.cgUid,
+        'PHPSESSID': CcApi.phpSessionId,
       };
       await saveCc();
     };
     // cookie jar 里可能有旧会话, 尝试无声恢复一份资料
     if (Sessions.tan8LoggedIn) {
+      final version = Http.tan8SessionVersion;
       try {
         final u = await Tan8Api.getUserInfo();
+        if (version != Http.tan8SessionVersion) return;
         if ('${u['code']}' == '1000' && u['user'] is Map) {
           tan8User = Map<String, dynamic>.from(u['user']);
           await saveTan8();
@@ -75,8 +95,9 @@ abstract final class Sessions {
 
   static Map<String, dynamic> _readJson(String name) {
     try {
-      return json.decode(File('${GPaths.appSupport}/data/$name').readAsStringSync())
-          as Map<String, dynamic>;
+      return json.decode(
+        File('${GPaths.appSupport}/data/$name').readAsStringSync(),
+      ) as Map<String, dynamic>;
     } catch (_) {
       return {};
     }
@@ -89,24 +110,31 @@ abstract final class Sessions {
   }
 
   static Future<void> saveCc() async {
-    if (CcApi.uid.isEmpty) return;
+    if (!CcApi.hasSession) return;
     ccUser.addAll({
-      'uid': CcApi.uid, 'service_uid': CcApi.serviceUid,
-      'service_key': CcApi.serviceKey, 'id': CcApi.userToken,
+      'uid': CcApi.uid,
+      'service_uid': CcApi.serviceUid,
+      'service_key': CcApi.serviceKey,
+      'id': CcApi.userToken,
       'cg_uid': CcApi.cgUid,
     });
     ccUser['eqid'] = CcApi.eqid;
     ccUser['PHPSESSID'] = CcApi.phpSessionId;
-    File('${GPaths.appSupport}/data/cc_user.json').writeAsStringSync(json.encode(ccUser));
+    File('${GPaths.appSupport}/data/cc_user.json')
+        .writeAsStringSync(json.encode(ccUser));
     changed.value++;
   }
 
   static Future<void> logoutTan8() async {
     tan8User = {};
-    final f = File('${GPaths.appSupport}/data/tan8_user.json');
-    if (f.existsSync()) f.deleteSync();
-    await Http.tan8Jar.deleteAll();
-    changed.value++;
+    final clearing = Http.clearTan8Session();
+    try {
+      final f = File('${GPaths.appSupport}/data/tan8_user.json');
+      if (f.existsSync()) f.deleteSync();
+      await clearing;
+    } finally {
+      changed.value++;
+    }
   }
 
   static Future<void> logoutCc() async {
@@ -115,6 +143,8 @@ abstract final class Sessions {
     try {
       final f = File('${GPaths.appSupport}/data/cc_user.json');
       if (f.existsSync()) f.deleteSync();
-    } finally { changed.value++; }
+    } finally {
+      changed.value++;
+    }
   }
 }

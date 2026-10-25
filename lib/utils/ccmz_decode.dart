@@ -12,7 +12,11 @@ class CcmzPackage {
   final int type;
   final String scoreJson; // data.ccxml / score.json 原文
   final String infoJson; // info.json 原文(无则空串)
-  const CcmzPackage({required this.type, required this.scoreJson, required this.infoJson});
+  const CcmzPackage({
+    required this.type,
+    required this.scoreJson,
+    required this.infoJson,
+  });
 }
 
 /// 解析失败抛 StateError/FormatError, 由调用方给用户提示。

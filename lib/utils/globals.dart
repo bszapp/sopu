@@ -23,7 +23,9 @@ abstract final class GPaths {
       def = '$support/Downloads';
     } else if (Platform.isWindows) {
       def = '${Platform.environment['USERPROFILE'] ?? ''}\\Downloads';
-      if (def.isEmpty || !Directory(def).existsSync()) def = '$support/Downloads';
+      if (def.isEmpty || !Directory(def).existsSync()) {
+        def = '$support/Downloads';
+      }
     } else {
       def = '$support/Downloads';
     }

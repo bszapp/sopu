@@ -1,9 +1,9 @@
-/// 主壳: 底部导航(首页/搜索/我的) + 全局迷你播放条。
+/// 主页内容；导航栏和播放栏由全局 AppShell 统一布局。
 library;
 
 import 'package:flutter/material.dart';
 
-import '../widgets/player_bar.dart';
+import '../widgets/app_shell.dart';
 
 import 'home_tab.dart';
 import 'mine_page.dart';
@@ -17,14 +17,23 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int _index = 0;
-  final _controller = PageController(initialPage: 0);
+  final _controller = PageController(initialPage: homeTabIndex.value);
 
-  void _switchPage(int i) {
-    setState(() {
-      _index = i;
-      _controller.jumpToPage(i);
-    });
+  @override
+  void initState() {
+    super.initState();
+    homeTabIndex.addListener(_switchPage);
+  }
+
+  void _switchPage() {
+    if (_controller.hasClients) _controller.jumpToPage(homeTabIndex.value);
+  }
+
+  @override
+  void dispose() {
+    homeTabIndex.removeListener(_switchPage);
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
@@ -34,34 +43,6 @@ class _HomePageState extends State<HomePage> {
         physics: const NeverScrollableScrollPhysics(), // 顶部页面切换仅由导航触发
         controller: _controller,
         children: const [HomeTab(), SearchPage(), MinePage()],
-      ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const MiniPlayerBar(bottomSafeArea: false),
-          NavigationBar(
-            selectedIndex: _index,
-            height: 62,
-            onDestinationSelected: _switchPage,
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: '首页',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.search),
-                selectedIcon: Icon(Icons.search),
-                label: '搜索',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.person_outline),
-                selectedIcon: Icon(Icons.person),
-                label: '我的',
-              ),
-            ],
-          ),
-        ],
       ),
     );
   }

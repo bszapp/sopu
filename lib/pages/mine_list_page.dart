@@ -10,6 +10,8 @@ import '../http/tan8_api.dart';
 import '../services/sessions.dart';
 import '../widgets/common.dart';
 import 'author_page.dart';
+import 'playlist_page.dart';
+import '../utils/data_fields.dart';
 
 class MineListPage extends StatefulWidget {
   final String
@@ -39,6 +41,9 @@ class _MineListPageState extends State<MineListPage> {
   String _error = '';
   List<dynamic> _items = [];
   bool _isUserList = false;
+  int _page = 1, _start = 0;
+  bool _hasMore = true, _loadingMore = false;
+  String _moreError = '';
   final List<String> _historyNotices = [];
   int _tan8HistoryStart = 0;
   int _ccHistoryPage = 1;
@@ -54,26 +59,39 @@ class _MineListPageState extends State<MineListPage> {
 
   bool get isCc => widget.kind.startsWith('cc_');
 
-  Future<void> _load() async {
+  Future<void> _load({bool more = false}) async {
     if (widget.kind == 'history') {
       await _loadHistory(reset: true);
       return;
     }
+    if (more && (_loading || _loadingMore || !_hasMore)) return;
+    if (!more) {
+      _page = 1;
+      _start = 0;
+      _hasMore = true;
+    }
     setState(() {
-      _loading = true;
-      _error = '';
+      if (more) {
+        _loadingMore = true;
+      } else {
+        _loading = true;
+        _error = '';
+      }
+      _moreError = '';
     });
+    _isUserList =
+        widget.kind.endsWith('_follow') || widget.kind.endsWith('_fans');
     try {
       dynamic r;
       switch (widget.kind) {
         case 'tan8_collect':
-          r = await Tan8Api.myCollectList();
+          r = await Tan8Api.myCollectList(start: _start);
           break;
         case 'tan8_history':
-          r = await Tan8Api.myBrowseHistory();
+          r = await Tan8Api.myBrowseHistory(start: _start);
           break;
         case 'tan8_likes':
-          r = await Tan8Api.myLikeList();
+          r = await Tan8Api.myLikeList(start: _start);
           break;
         case 'tan8_playlists':
           r = await Tan8Api.myPlaylists();
@@ -82,39 +100,79 @@ class _MineListPageState extends State<MineListPage> {
         case 'cc_fans':
           _isUserList = true;
           r = widget.kind == 'cc_follow'
-              ? await CcApi.myFollowList()
-              : await CcApi.myFansList();
+              ? await CcApi.myFollowList(page: _page)
+              : await CcApi.myFansList(page: _page);
           break;
         case 'tan8_follow':
         case 'tan8_fans':
           _isUserList = true;
-          final lists = await Tan8Api.myFollowLists(Sessions.tan8Uid);
+          final lists = await Tan8Api.myFollowLists(
+            Sessions.tan8Uid,
+            start: _start,
+          );
           r = widget.kind == 'tan8_follow'
               ? lists['following']
               : lists['followers'];
           break;
         case 'cc_collect':
-          r = await CcApi.myCollectList();
-          if (r is Map<String, dynamic>) r = r['list'] ?? const [];
+          r = await CcApi.myCollectList(page: _page);
           break;
         case 'cc_history':
-          r = await CcApi.myBrowseHistory();
+          r = await CcApi.combinedBrowseHistory(page: _page);
           break;
         default:
           r = const [];
       }
       if (!mounted) return;
+      final rows = r == '' ? <dynamic>[] : itemsOf(r);
+      if (more && rows.isNotEmpty) {
+        String key(dynamic value) => value is Map<String, dynamic>
+            ? (_isUserList
+                  ? userIdOf(value, isCc ? 'cc' : 'tan8')
+                  : ScoreCard.idOf(value))
+            : '$value';
+        final known = _items.map(key).where((id) => id.isNotEmpty).toSet();
+        if (widget.kind != 'cc_history' &&
+            rows.every((row) => known.contains(key(row)))) {
+          throw StateError('服务器重复返回上一页，暂时无法继续翻页');
+        }
+      }
+      final totalPages = r is Map ? int.tryParse('${r['total_pages']}') : null;
       setState(() {
-        _items = r is List
-            ? r
-            : (r is Map && r['list'] is List ? r['list'] as List : const []);
+        if (!more) _items = [];
+        if (widget.kind == 'cc_history') {
+          final seen = _items
+              .whereType<Map<String, dynamic>>()
+              .map(ScoreCard.idOf)
+              .toSet();
+          _items.addAll(
+            rows.whereType<Map<String, dynamic>>().where(
+              (row) => seen.add(ScoreCard.idOf(row)),
+            ),
+          );
+        } else {
+          _items.addAll(rows);
+        }
+        _start += rows.length;
+        _hasMore =
+            widget.kind != 'tan8_playlists' &&
+            rows.isNotEmpty &&
+            (totalPages == null || _page < totalPages) &&
+            (r is! Map || r['has_more'] != false);
+        _page++;
         _loading = false;
+        _loadingMore = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '$e';
+        _loadingMore = false;
+        if (more) {
+          _moreError = '$e';
+        } else {
+          _error = '$e';
+        }
       });
     }
   }
@@ -146,7 +204,7 @@ class _MineListPageState extends State<MineListPage> {
       try {
         final dynamic raw = isTan8
             ? await Tan8Api.myBrowseHistory(start: _tan8HistoryStart)
-            : await CcApi.myBrowseHistory(page: _ccHistoryPage);
+            : await CcApi.combinedBrowseHistory(page: _ccHistoryPage);
         final dynamic data = raw is List
             ? raw
             : (raw is Map ? raw['list'] : null);
@@ -156,7 +214,12 @@ class _MineListPageState extends State<MineListPage> {
           _tan8HistoryMore = data.isNotEmpty;
         } else {
           _ccHistoryPage++;
-          _ccHistoryMore = data.isNotEmpty;
+          _ccHistoryMore = raw is Map
+              ? raw['has_more'] != false
+              : data.isNotEmpty;
+          if (raw is Map && raw['warnings'] is List) {
+            notices.addAll((raw['warnings'] as List).map((e) => '$e'));
+          }
         }
         return data
             .whereType<Map<String, dynamic>>()
@@ -179,7 +242,15 @@ class _MineListPageState extends State<MineListPage> {
       _historyNotices
         ..clear()
         ..addAll(notices);
-      _items.addAll(merged);
+      final seen = _items
+          .whereType<Map<String, dynamic>>()
+          .map((row) => '${row['__platform']}:${ScoreCard.idOf(row)}')
+          .toSet();
+      _items.addAll(
+        merged.where(
+          (row) => seen.add('${row['__platform']}:${ScoreCard.idOf(row)}'),
+        ),
+      );
       _loading = false;
       _historyLoadingMore = false;
     });
@@ -189,7 +260,7 @@ class _MineListPageState extends State<MineListPage> {
     onRefresh: () => _loadHistory(reset: true),
     child: ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: pageBottomScrollSpace),
+      padding: EdgeInsets.zero,
       children: [
         if (_historyNotices.isNotEmpty)
           Padding(
@@ -217,12 +288,50 @@ class _MineListPageState extends State<MineListPage> {
     ),
   );
 
+  Future<void> _createPlaylist() async {
+    final controller = TextEditingController();
+    final title = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('新建歌单'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '歌单名称'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    if (title == null || title.isEmpty) return;
+    try {
+      await Tan8Api.createPlaylist(title);
+      await _load();
+    } catch (e) {
+      SmartDialog.showToast('创建失败：$e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_titles[widget.kind] ?? '列表'),
         actions: [
+          if (widget.kind == 'tan8_playlists')
+            IconButton(
+              onPressed: _loading ? null : _createPlaylist,
+              icon: const Icon(Icons.add),
+              tooltip: '新建歌单',
+            ),
           if (widget.kind == 'history')
             IconButton(
               onPressed: _loading ? null : _load,
@@ -237,16 +346,35 @@ class _MineListPageState extends State<MineListPage> {
           ? _historyBody()
           : _error.isNotEmpty
           ? ErrorCenter(_error, onRetry: _load)
-          : _items.isEmpty
-          ? const Center(
-              child: Text('暂无数据', style: TextStyle(color: Colors.grey)),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.only(bottom: pageBottomScrollSpace),
-              itemCount: _items.length,
-              itemBuilder: (_, i) => _isUserList
-                  ? _UserRow(_userOf(_items[i]), platform: isCc ? 'cc' : 'tan8')
-                  : _rowOf(_items[i]),
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.zero,
+                itemCount: _items.length + 1,
+                itemBuilder: (_, i) => i == _items.length
+                    ? Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            if (_items.isEmpty) const Text('暂无数据'),
+                            if (_moreError.isNotEmpty) Text(_moreError),
+                            if (_loadingMore) const CircularProgressIndicator(),
+                            if (_hasMore && !_loadingMore)
+                              OutlinedButton(
+                                onPressed: () => _load(more: true),
+                                child: Text(_moreError.isEmpty ? '加载更多' : '重试'),
+                              ),
+                          ],
+                        ),
+                      )
+                    : _isUserList
+                    ? _UserRow(
+                        _userOf(_items[i]),
+                        platform: isCc ? 'cc' : 'tan8',
+                      )
+                    : _rowOf(_items[i]),
+              ),
             ),
     );
   }
@@ -263,7 +391,20 @@ class _MineListPageState extends State<MineListPage> {
     };
     m['__platform'] = item['__platform'] ?? (isCc ? 'cc' : 'tan8');
     if (widget.kind == 'tan8_playlists') {
-      return ListTile(title: Text('${m['title'] ?? m['name'] ?? m}'));
+      final id = textOf(m, ['id', 'albumId']);
+      final title = textOf(m, ['title', 'name']);
+      return ListTile(
+        leading: const Icon(Icons.queue_music),
+        title: Text(title),
+        subtitle: Text('${m['yuepuCounts'] ?? '-'} 首'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: id.isEmpty
+            ? null
+            : () async {
+                await Get.to(() => PlaylistPage(id: id, title: title));
+                if (mounted) _load();
+              },
+      );
     }
     return ScoreRow(m);
   }
@@ -281,28 +422,24 @@ class _UserRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name =
-        (u['username'] ?? u['webname'] ?? u['nickname'] ?? u['name'] ?? '用户')
-            .toString();
-    final uid = (u['uid'] ?? u['user_id'] ?? u['id'] ?? '').toString();
-    final av = (u['user_avatar'] ?? u['avatar'] ?? u['face'] ?? '').toString();
-    final full = av.startsWith('http') ? av : (av.isEmpty ? '' : 'https:$av');
+    final name = userNameOf(u), uid = userIdOf(u, platform);
+    final full = userPhotoOf(u, platform);
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: Theme.of(context)
-              .colorScheme
-              .surfaceContainerHighest,
-          backgroundImage: full.startsWith('http') ? NetworkImage(full) : null,
-          child: full.startsWith('http')
-              ? null
-              : Text(
-                  name.isEmpty ? '?' : name[0],
-                  style: const TextStyle(fontSize: 14),
-                ),
+        leading: UserAvatar(url: full, name: name),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                name.isEmpty ? '用户' : name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (membershipOf(u) != null) StatusBadge(membershipOf(u)!),
+          ],
         ),
-        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text('UID: $uid', style: const TextStyle(fontSize: 11)),
         trailing: const Icon(Icons.chevron_right),
         onTap: () {

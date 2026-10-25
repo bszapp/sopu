@@ -170,7 +170,7 @@ void main() {
         find.descendant(of: bar, matching: find.text(track.title)),
       );
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('打开原曲谱'), findsOneWidget);
+      expect(find.byTooltip('打开原曲谱'), findsOneWidget);
       expect(find.text(track.author), findsOneWidget);
       await player.seekTo(const Duration(seconds: 10));
       await player.resume();
@@ -188,7 +188,7 @@ void main() {
       await File('$output/player_$platform.png')
           .writeAsBytes(png!.buffer.asUint8List());
       screenshot.dispose();
-      final original = find.text('打开原曲谱');
+      final original = find.byTooltip('打开原曲谱');
       await tester.ensureVisible(original);
       await tester.tap(original);
       await tester.pump(const Duration(seconds: 1));

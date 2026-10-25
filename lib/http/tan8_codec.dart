@@ -25,14 +25,14 @@ String _chunkRev(String x, [int n = 8]) {
 }
 
 /// 64 字符乱序表(Tan8Util.strToIntCode)
-const String tan8Alpha = 'A4CDE+GHIJKbMNOPQRvTUVWXYZaLcdefghijklmnopqrstuSwxyz0123B56789F/';
+const String tan8Alpha =
+    'A4CDE+GHIJKbMNOPQRvTUVWXYZaLcdefghijklmnopqrstuSwxyz0123B56789F/';
 
 /// libqlyp PWD66 表(ParWCtr::encode_array)
 const String tan8Pwd =
     'aY56Z1defghijkpqrxyzABstuvwCFGbcHDEIJKLMNOTU+VW23X4lmno78/PQRS90-=';
 
-String _b64Pad(String s) =>
-    s + '=' * ((4 - s.length % 4) % 4);
+String _b64Pad(String s) => s + '=' * ((4 - s.length % 4) % 4);
 
 /// PWD66 编码: 表旋转 + 位置 23 包 b64(seed)
 String pwdEncode(String text, int seed) {
@@ -41,7 +41,9 @@ String pwdEncode(String text, int seed) {
   for (final c in _chunkRev(text).runes) {
     final i = tan8Pwd.indexOf(String.fromCharCode(c));
     if (i < 0) {
-      throw ArgumentError('pwdEncode: 非法字符(输入应为 base64 文本): ${String.fromCharCode(c)}');
+      throw ArgumentError(
+        'pwdEncode: 非法字符(输入应为 base64 文本): ${String.fromCharCode(c)}',
+      );
     }
     buf.writeCharCode(tan8Pwd.codeUnitAt((i + ss) % 66));
   }
@@ -52,8 +54,9 @@ String pwdEncode(String text, int seed) {
 
 /// PWD66 解码(响应信封)
 String pwdDecode(String blob) {
-  final seed =
-      int.parse(utf8.decode(base64.decode(_b64Pad(blob.substring(23, 27)))));
+  final seed = int.parse(
+    utf8.decode(base64.decode(_b64Pad(blob.substring(23, 27)))),
+  );
   final ss = seed % 65 == 0 ? 1 : seed % 65;
   final t = blob.substring(0, 23) + blob.substring(27);
   final buf = StringBuffer();
@@ -80,8 +83,7 @@ String tan8AuthCode(String string, String operation, String key) {
     keyc = s.substring(0, 4);
     payload = latin1.decode(base64.decode(_b64Pad(s.substring(4))));
   } else {
-    final s =
-        base64.encode(utf8.encode(string)).replaceAll('=', '');
+    final s = base64.encode(utf8.encode(string)).replaceAll('=', '');
     keyc = md5hex(DateTime.now().millisecondsSinceEpoch.toString())
         .substring(28);
     payload = '0000000000${md5hex(s + keyb).substring(0, 16)}$s';
@@ -124,7 +126,8 @@ String tan8AuthCode(String string, String operation, String key) {
     return utf8.decode(base64.decode(_b64Pad(b)), allowMalformed: true);
   }
   return keyc +
-      base64.encode(utf8.encode(result))
+      base64
+          .encode(utf8.encode(result))
           .replaceAll('=', '_')
           .replaceAll('+', '-');
 }
@@ -143,8 +146,7 @@ String tan8Md5hex1() {
 /// AES-256-CBC(零 IV) 解密 + PKCS7 去填充 (YuepuCrypt::decode)。
 /// key = md5(encryptionKey + keystore) 前 32 字符的 ASCII 字节。
 Uint8List tan8AesDecrypt(Uint8List blob, String encryptionKey) {
-  final hexKey =
-      md5hex(encryptionKey + Tan8C.cryptKeystore).substring(0, 32);
+  final hexKey = md5hex(encryptionKey + Tan8C.cryptKeystore).substring(0, 32);
   final key = Uint8List.fromList(hexKey.codeUnits);
 
   final cbc = CBCBlockCipher(AESEngine())
@@ -163,7 +165,9 @@ Uint8List tan8AesDecrypt(Uint8List blob, String encryptionKey) {
     throw const Tan8CodecError('PKCS7 填充非法 — 服务器 encryptionKey 不匹配?');
   }
   for (var i = dec.length - pad; i < dec.length; i++) {
-    if (dec[i] != pad) throw const Tan8CodecError('PKCS7 填充非法 — 服务器 encryptionKey 不匹配?');
+    if (dec[i] != pad) {
+      throw const Tan8CodecError('PKCS7 填充非法 — 服务器 encryptionKey 不匹配?');
+    }
   }
   return Uint8List.sublistView(dec, 0, dec.length - pad);
 }

@@ -109,7 +109,8 @@ class PlayerService extends GetxService {
         await previous;
       } catch (_) {}
       if (request != _request) return;
-      final same = state.track.value?.url == track.url;
+      final same =
+          state.track.value?.url == track.url && state.error.value.isEmpty;
       state.error.value = '';
       state.track.value = track;
       _publishItem();
@@ -122,7 +123,7 @@ class PlayerService extends GetxService {
           _publish();
           await _player.open(Media(track.url), play: false);
         }
-        if (request == _request) await resume();
+        if (request == _request) await _resumeLoaded();
       } catch (e) {
         if (request == _request) {
           state.error.value = '$e';
@@ -137,8 +138,16 @@ class PlayerService extends GetxService {
   }
 
   Future<void> resume() async {
-    if (state.track.value == null) return;
-    state.error.value = '';
+    final track = state.track.value;
+    if (track == null) return;
+    if (state.error.value.isNotEmpty) {
+      await play(track);
+      return;
+    }
+    await _resumeLoaded();
+  }
+
+  Future<void> _resumeLoaded() async {
     if (_session != null && !await _session!.setActive(true)) {
       throw StateError('当前无法获得音频播放权限');
     }
@@ -154,7 +163,11 @@ class PlayerService extends GetxService {
     await _session?.setActive(false);
   }
 
-  Future<void> toggle() => state.playing.value ? pause() : resume();
+  Future<void> toggle() => state.error.value.isNotEmpty
+      ? resume()
+      : state.playing.value
+      ? pause()
+      : resume();
   Future<void> seekTo(Duration position) async {
     final duration = state.duration.value;
     final target = position < Duration.zero
@@ -168,8 +181,12 @@ class PlayerService extends GetxService {
   }
 
   Future<void> stop() async {
-    _request++;
+    final request = ++_request;
     _resumeAfterInterruption = false;
+    try {
+      await _opening;
+    } catch (_) {}
+    if (request != _request) return;
     await _player.stop();
     state.track.value = null;
     state.playing.value = false;

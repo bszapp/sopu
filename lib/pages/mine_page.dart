@@ -9,7 +9,9 @@ import '../services/sessions.dart';
 import '../http/cc_api.dart';
 import '../http/tan8_api.dart';
 import 'login_page.dart';
+import 'author_page.dart';
 import '../widgets/common.dart';
+import '../utils/data_fields.dart';
 
 class MinePage extends StatefulWidget {
   const MinePage({super.key});
@@ -31,7 +33,7 @@ class _MinePageState extends State<MinePage>
       body: ValueListenableBuilder<int>(
         valueListenable: Sessions.changed,
         builder: (context, _, _) => ListView(
-          padding: const EdgeInsets.only(bottom: pageBottomScrollSpace),
+          padding: EdgeInsets.zero,
           children: [
             _AccountCard(platform: 'cc'),
             _AccountCard(platform: 'tan8'),
@@ -108,12 +110,26 @@ class _AccountCard extends StatelessWidget {
     final isCc = platform == 'cc';
     final user = isCc ? Sessions.ccUser : Sessions.tan8User;
     final loggedIn = user.isNotEmpty;
-    final name = isCc
-        ? (user['nickname'] ?? '').toString()
-        : (user['webname'] ?? user['username'] ?? '').toString();
-    final uid = isCc
-        ? (user['uid'] ?? '').toString()
-        : (user['uid'] ?? '').toString();
+    final name = userNameOf(user);
+    final photo = userPhotoOf(user, platform), member = membershipOf(user);
+    final uid = userIdOf(user, platform);
+    void openProfile() {
+      final ownUid = isCc ? Sessions.ccNumericId : Sessions.tan8Uid;
+      if (ownUid.isEmpty) {
+        SmartDialog.showToast('登录资料缺少用户 ID，请刷新个人信息后重试');
+        return;
+      }
+      Get.to(
+        () => AuthorPage(
+          platform: platform,
+          uid: ownUid,
+          name: name,
+          photo: photo,
+        ),
+        routeName: '/author/$platform/$ownUid',
+        preventDuplicates: false,
+      );
+    }
 
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
@@ -124,16 +140,26 @@ class _AccountCard extends StatelessWidget {
           children: [
             Row(
               children: [
+                UserAvatar(url: photo, name: name),
+                const SizedBox(width: 10),
                 PlatformBadge(platform, fontSize: 11),
                 const SizedBox(width: 8),
-                Text(
-                  loggedIn ? (name.isEmpty ? '已登录' : name) : '未登录',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: loggedIn ? openProfile : null,
+                    child: Text(
+                      loggedIn ? (name.isEmpty ? '已登录' : name) : '未登录',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
-                const Spacer(),
+                if (member != null) StatusBadge(member),
                 if (loggedIn)
                   Text(
                     isCc
@@ -146,6 +172,15 @@ class _AccountCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
+            if (loggedIn)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: openProfile,
+                  icon: const Icon(Icons.person_outline),
+                  label: const Text('我的主页'),
+                ),
+              ),
             Row(
               children: [
                 Expanded(
@@ -174,21 +209,53 @@ class _AccountCard extends StatelessWidget {
                                   mainAxisSize: MainAxisSize.min,
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    for (final key in [
-                                      'nickname',
-                                      'webname',
-                                      'username',
-                                      'cg_uid',
-                                      'sex',
-                                      'signature',
-                                      'intro',
-                                    ])
-                                      if ('${profile[key] ?? ''}'.isNotEmpty)
+                                    UserAvatar(
+                                      url: userPhotoOf(profile, platform),
+                                      name: userNameOf(profile),
+                                      radius: 36,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    if (membershipOf(profile) != null)
+                                      StatusBadge(membershipOf(profile)!),
+                                    for (final entry in <String, String>{
+                                      '昵称': userNameOf(profile),
+                                      '用户 ID': userIdOf(profile, platform),
+                                      '简介': textOf(profile, [
+                                        'personal_profile',
+                                        'self_introduction',
+                                        'signature',
+                                        'intro',
+                                      ]),
+                                      '地区': textOf(profile, [
+                                        'address',
+                                        'city',
+                                        'province',
+                                      ]),
+                                      '生日': textOf(profile, ['birthday']),
+                                      '关注': textOf(profile, [
+                                        'total_follow_num',
+                                        'followCount',
+                                      ]),
+                                      '粉丝': textOf(profile, [
+                                        'total_fans_num',
+                                        'fansCount',
+                                      ]),
+                                      '发布曲谱': textOf(profile, [
+                                        'total_opern_num',
+                                        'yuepuPublishCount',
+                                      ]),
+                                      '收藏曲谱': textOf(profile, [
+                                        'yuepuCollectCount',
+                                      ]),
+                                    }.entries)
+                                      if (entry.value.isNotEmpty)
                                         Padding(
                                           padding: const EdgeInsets.symmetric(
                                             vertical: 4,
                                           ),
-                                          child: Text('$key: ${profile[key]}'),
+                                          child: Text(
+                                            '${entry.key}：${entry.value}',
+                                          ),
                                         ),
                                   ],
                                 ),

@@ -18,13 +18,13 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 
 import '../utils/platform_utils.dart';
 import '../utils/tan8_svg.dart';
-import '../widgets/common.dart' show pageBottomScrollSpace;
 
 WebViewEnvironment? _webEnv; // 由 main.dart 在 Windows 下注入
 
 void initWebViewEnv(WebViewEnvironment? env) => _webEnv = env;
 
 class SheetWebPage extends StatefulWidget {
+  final bool embedded;
   final String mode; // 'ccmz' | 'svg'
   final String title;
   final String scoreJson; // ccmz: data.ccxml|score.json 原文
@@ -36,11 +36,13 @@ class SheetWebPage extends StatefulWidget {
     required this.title,
     required this.scoreJson,
     this.infoJson = '',
+    this.embedded = false,
   }) : mode = 'ccmz',
        svgs = const [];
 
   const SheetWebPage.svg({super.key, required this.title, required this.svgs})
-    : mode = 'svg',
+    : embedded = false,
+      mode = 'svg',
       scoreJson = '',
       infoJson = '';
 
@@ -102,7 +104,6 @@ class _SheetWebPageState extends State<SheetWebPage> {
 <style>
 @font-face{font-family:'Aloisen New';src:url(data:font/woff;base64,$woffB64) format('woff');font-display:block;}
 html,body{margin:0;padding:0;background:#3a3a3a;}
-body{padding-bottom:${pageBottomScrollSpace.toInt()}px;}
 svg{display:block;width:100% !important;height:auto !important;page-break-after:always;break-after:page;background:#fff;}
 .scorefont[data-v-1d111dd8]{font-family:'Aloisen New',Arial,serif;}
 </style>
@@ -282,6 +283,29 @@ window._trigger = function() {
   @override
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme;
+    final content = _error != null
+        ? Center(
+            child: Text(_error!, style: TextStyle(color: c.error)),
+          )
+        : (_htmlData == null && _htmlPath == null)
+        ? const Center(child: CircularProgressIndicator())
+        : _webView();
+    if (widget.embedded) {
+      return Column(
+        children: [
+          Expanded(child: content),
+          if (_renderedPages != null)
+            ColoredBox(
+              color: c.surface,
+              child: SizedBox(
+                height: 28,
+                width: double.infinity,
+                child: Center(child: Text('共 $_renderedPages 页')),
+              ),
+            ),
+        ],
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -292,35 +316,31 @@ window._trigger = function() {
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: _error != null
-          ? Center(
-              child: Text(_error!, style: TextStyle(color: c.error)),
-            )
-          : (_htmlData == null && _htmlPath == null)
-          ? const Center(child: CircularProgressIndicator())
-          : InAppWebView(
-              webViewEnvironment: _webEnv,
-              initialData: _htmlData != null
-                  ? InAppWebViewInitialData(
-                      data: _htmlData!,
-                      mimeType: 'text/html',
-                      encoding: 'utf-8',
-                    )
-                  : null,
-              initialUrlRequest: _htmlPath == null
-                  ? null
-                  : URLRequest(url: WebUri(Uri.file(_htmlPath!).toString())),
-              initialSettings: InAppWebViewSettings(
-                javaScriptEnabled: true,
-                transparentBackground: false,
-                useWideViewPort: true,
-                supportZoom: true,
-                blockNetworkImage: true,
-                blockNetworkLoads: true,
-              ),
-              onWebViewCreated: (ctl) => _ctl = ctl,
-              onLoadStop: (ctl, _) => _pumpChunks(ctl),
-            ),
+      body: content,
     );
   }
+
+  Widget _webView() => InAppWebView(
+    webViewEnvironment: _webEnv,
+    initialData: _htmlData != null
+        ? InAppWebViewInitialData(
+            data: _htmlData!,
+            mimeType: 'text/html',
+            encoding: 'utf-8',
+          )
+        : null,
+    initialUrlRequest: _htmlPath == null
+        ? null
+        : URLRequest(url: WebUri(Uri.file(_htmlPath!).toString())),
+    initialSettings: InAppWebViewSettings(
+      javaScriptEnabled: true,
+      transparentBackground: false,
+      useWideViewPort: true,
+      supportZoom: true,
+      blockNetworkImage: true,
+      blockNetworkLoads: true,
+    ),
+    onWebViewCreated: (ctl) => _ctl = ctl,
+    onLoadStop: (ctl, _) => _pumpChunks(ctl),
+  );
 }
